@@ -175,7 +175,7 @@ jobs:
         run: |
           case "${{ matrix.kind }}" in
           dnf)
-            curl -fsSLo /etc/yum.repos.d/crunchtools.repo "$SITE_URL/rpm/crunchtools.repo"
+            curl -fsSL --retry 5 --retry-all-errors -o /etc/yum.repos.d/crunchtools.repo "$SITE_URL/rpm/crunchtools.repo"
             dnf install -y petit
             ;;
           zypper)
@@ -186,8 +186,8 @@ jobs:
             apt-get update
             apt-get install -y ca-certificates curl
             install -d /etc/apt/keyrings
-            curl -fsSLo /etc/apt/keyrings/crunchtools.asc "$SITE_URL/crunchtools.asc"
-            curl -fsSLo /etc/apt/sources.list.d/crunchtools.sources "$SITE_URL/deb/crunchtools.sources"
+            curl -fsSL --retry 5 --retry-all-errors -o /etc/apt/keyrings/crunchtools.asc "$SITE_URL/crunchtools.asc"
+            curl -fsSL --retry 5 --retry-all-errors -o /etc/apt/sources.list.d/crunchtools.sources "$SITE_URL/deb/crunchtools.sources"
             apt-get update
             apt-get install -y petit
             ;;
