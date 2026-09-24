@@ -1,0 +1,204 @@
+name: Publish repositories
+
+# Builds the signed dnf and apt repositories from the .rpm and .deb assets
+# on the last five releases of every product in products.txt, and serves
+# them with GitHub Pages. Nothing is stored in git: every run rebuilds the
+# whole site from the releases, and a scheduled run with nothing new to
+# publish stops after comparing against the live index.json.
+
+on:
+  schedule:
+    - cron: "17 * * * *"
+  workflow_dispatch:
+  repository_dispatch:
+    types: [release]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+env:
+  SITE_URL: https://crunchtools.github.io/packages
+  KEEP_RELEASES: 5
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: write
+    outputs:
+      changed: ${{ steps.fetch.outputs.changed }}
+    steps:
+      - uses: actions/checkout@v7
+
+      # GitHub disables a public repo's schedule after 60 days without a
+      # commit. Re-enabling it on every run resets that clock.
+      - name: Keep the schedule alive
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh api -X PUT "repos/$GITHUB_REPOSITORY/actions/workflows/publish.yml/enable"
+
+      - name: Fetch the packages
+        id: fetch
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p pool
+          grep -v '^#' products.txt | while read -r product; do
+            [ -n "$product" ] || continue
+            gh release list -R "$product" -L "$KEEP_RELEASES" --exclude-drafts \
+              --exclude-pre-releases --json tagName -q '.[].tagName' |
+            while read -r tag; do
+              gh release download "$tag" -R "$product" -D pool --skip-existing \
+                -p '*.rpm' -p '*.deb' || echo "$product $tag has no packages"
+            done
+          done
+          (cd pool && sha256sum -- * | sort -k2) |
+            jq -R -s 'split("\n") | map(select(length > 0) | split("  ") | {file: .[1], sha256: .[0]})' \
+            > index.json
+          cat index.json
+          if [ "$GITHUB_EVENT_NAME" = schedule ] &&
+             curl -fsS "$SITE_URL/index.json" | cmp -s - index.json; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Import the signing key
+        if: steps.fetch.outputs.changed == 'true'
+        env:
+          PACKAGES_GPG_KEY: ${{ secrets.PACKAGES_GPG_KEY }}
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q createrepo-c rpm apt-utils
+          echo "$PACKAGES_GPG_KEY" | gpg --batch --import
+          fpr=$(gpg --list-secret-keys --with-colons | awk -F: '/^fpr/ {print $10; exit}')
+          test "$(gpg --show-keys --with-colons crunchtools.asc | awk -F: '/^fpr/ {print $10; exit}')" = "$fpr"
+          echo "FPR=$fpr" >> "$GITHUB_ENV"
+
+      - name: Build the rpm repository
+        if: steps.fetch.outputs.changed == 'true'
+        run: |
+          mkdir -p site/rpm
+          cp pool/*.rpm site/rpm/
+          rpmsign --addsign --define "_gpg_name $FPR" site/rpm/*.rpm
+          createrepo_c site/rpm
+          gpg --batch --yes --local-user "$FPR" --detach-sign --armor site/rpm/repodata/repomd.xml
+          cat > site/rpm/crunchtools.repo <<EOF
+          [crunchtools]
+          name=crunchtools
+          baseurl=$SITE_URL/rpm
+          enabled=1
+          gpgcheck=1
+          repo_gpgcheck=1
+          gpgkey=$SITE_URL/crunchtools.asc
+          EOF
+
+      - name: Build the apt repository
+        if: steps.fetch.outputs.changed == 'true'
+        run: |
+          mkdir -p site/deb
+          cp pool/*.deb site/deb/
+          cd site/deb
+          apt-ftparchive packages . > Packages
+          gzip -9kn Packages
+          apt-ftparchive \
+            -o APT::FTPArchive::Release::Origin=crunchtools \
+            -o APT::FTPArchive::Release::Label=crunchtools \
+            -o APT::FTPArchive::Release::Suite=stable \
+            -o APT::FTPArchive::Release::Codename=stable \
+            release . > Release
+          gpg --batch --yes --local-user "$FPR" --clearsign -o InRelease Release
+          gpg --batch --yes --local-user "$FPR" --detach-sign --armor -o Release.gpg Release
+          cat > crunchtools.sources <<EOF
+          Types: deb
+          URIs: $SITE_URL/deb/
+          Suites: ./
+          Signed-By: /etc/apt/keyrings/crunchtools.asc
+          EOF
+
+      - name: Assemble the site
+        if: steps.fetch.outputs.changed == 'true'
+        run: |
+          cp crunchtools.asc index.json site/
+          cp index.html site/
+          touch site/.nojekyll
+
+      - uses: actions/upload-pages-artifact@v5
+        if: steps.fetch.outputs.changed == 'true'
+        with:
+          path: site
+
+  deploy:
+    needs: build
+    if: needs.build.outputs.changed == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - id: deploy
+        uses: actions/deploy-pages@v5
+
+  # Installs from the live repositories exactly as index.html says, with
+  # signature checking on.
+  smoke:
+    needs: deploy
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { image: "registry.access.redhat.com/ubi8/ubi", kind: dnf }
+          - { image: "registry.access.redhat.com/ubi9/ubi", kind: dnf }
+          - { image: "registry.access.redhat.com/ubi10/ubi", kind: dnf }
+          - { image: "almalinux:9", kind: dnf }
+          - { image: "quay.io/centos/centos:stream10", kind: dnf }
+          - { image: "fedora:latest", kind: dnf }
+          - { image: "amazonlinux:2023", kind: dnf }
+          - { image: "registry.suse.com/bci/bci-base:15.7", kind: zypper }
+          - { image: "registry.suse.com/bci/bci-base:16.0", kind: zypper }
+          - { image: "debian:12", kind: apt }
+          - { image: "debian:13", kind: apt }
+          - { image: "ubuntu:24.04", kind: apt }
+          - { image: "ubuntu:26.04", kind: apt }
+    container: ${{ matrix.image }}
+    steps:
+      - name: Add the repository and install petit
+        run: |
+          case "${{ matrix.kind }}" in
+          dnf)
+            curl -fsSLo /etc/yum.repos.d/crunchtools.repo "$SITE_URL/rpm/crunchtools.repo"
+            dnf install -y petit
+            ;;
+          zypper)
+            zypper --non-interactive --gpg-auto-import-keys addrepo "$SITE_URL/rpm/crunchtools.repo"
+            zypper --non-interactive --gpg-auto-import-keys install petit
+            ;;
+          apt)
+            apt-get update
+            apt-get install -y ca-certificates curl
+            install -d /etc/apt/keyrings
+            curl -fsSLo /etc/apt/keyrings/crunchtools.asc "$SITE_URL/crunchtools.asc"
+            curl -fsSLo /etc/apt/sources.list.d/crunchtools.sources "$SITE_URL/deb/crunchtools.sources"
+            apt-get update
+            apt-get install -y petit
+            ;;
+          esac
+
+      - name: Run petit
+        run: |
+          petit --version
+          printf '%s\n' \
+            'Sep 23 10:00:01 host sshd[101]: Accepted publickey for alice from 10.0.0.1 port 5001 ssh2' \
+            'Sep 23 10:00:02 host sshd[102]: Accepted publickey for bob from 10.0.0.2 port 5002 ssh2' \
+            'Sep 23 10:00:03 host CRON[103]: (root) CMD (run-parts /etc/cron.hourly)' > sample.log
+          petit --hash sample.log | tee hash.out
+          grep -q 'Accepted publickey' hash.out
