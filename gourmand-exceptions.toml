@@ -1,0 +1,6 @@
+[[exceptions]]
+check = "summary_litter"
+path = "products.txt"
+justification = "Product manifest read by .github/workflows/publish.yml and documented in README.md; the publish job iterates it from the repo root"
+classification = "by_design"
+
