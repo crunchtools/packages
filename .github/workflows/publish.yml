@@ -173,9 +173,18 @@ jobs:
     steps:
       - name: Add the repository and install petit
         run: |
+          # Pages can answer 404 or 503 for a minute after a deploy. A loop,
+          # not --retry-all-errors: UBI 8's curl 7.61 predates that flag.
+          fetch() {
+            for i in 1 2 3 4 5 6; do
+              curl -fsSL -o "$1" "$2" && return 0
+              [ "$i" -lt 6 ] && sleep 10
+            done
+            return 1
+          }
           case "${{ matrix.kind }}" in
           dnf)
-            curl -fsSL --retry 5 --retry-all-errors -o /etc/yum.repos.d/crunchtools.repo "$SITE_URL/rpm/crunchtools.repo"
+            fetch /etc/yum.repos.d/crunchtools.repo "$SITE_URL/rpm/crunchtools.repo"
             dnf install -y petit
             ;;
           zypper)
@@ -186,8 +195,8 @@ jobs:
             apt-get update
             apt-get install -y ca-certificates curl
             install -d /etc/apt/keyrings
-            curl -fsSL --retry 5 --retry-all-errors -o /etc/apt/keyrings/crunchtools.asc "$SITE_URL/crunchtools.asc"
-            curl -fsSL --retry 5 --retry-all-errors -o /etc/apt/sources.list.d/crunchtools.sources "$SITE_URL/deb/crunchtools.sources"
+            fetch /etc/apt/keyrings/crunchtools.asc "$SITE_URL/crunchtools.asc"
+            fetch /etc/apt/sources.list.d/crunchtools.sources "$SITE_URL/deb/crunchtools.sources"
             apt-get update
             apt-get install -y petit
             ;;
