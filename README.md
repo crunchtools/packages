@@ -35,5 +35,5 @@ GitHub release (see crunchtools/petit's `packages.yml`). Add the repo to
 `588C E8BF 2F36 D77E 1B1E 545C C04F 530D 3931 F683`. The private key exists
 only as the `PACKAGES_GPG_KEY` Actions secret in this repo.
 
-This repo holds only a workflow and static configuration, so it declares no
-crunchtools constitution profile; the tools it publishes carry theirs.
+This repo follows the crunchtools constitution's Package Repository
+profile; see `.specify/memory/constitution.md`.
