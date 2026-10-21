@@ -6,6 +6,13 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- A publish no longer re-signs RPMs already in the repository. Each
+  signature carries a timestamp, so every publish changed every RPM under its
+  old URL, and for the CDN's ten-minute cache dnf could fetch old bytes
+  against new metadata and fail with "checksum doesn't match".
+
 ### Changed
 
 - Added the per-repo constitution as a v1.18.0 manifest (Package Repository):
