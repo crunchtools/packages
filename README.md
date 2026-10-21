@@ -1,6 +1,6 @@
 # crunchtools packages
 
-Signed dnf and apt repositories for crunchtools command line tools, served
+Signed dnf and apt repositories for crunchtools tools (petit, claude-agent), served
 at <https://crunchtools.github.io/packages>. Install instructions are on
 that page.
 

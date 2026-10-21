@@ -156,19 +156,21 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # agent: claude-agent is installed too, next to Anthropic's
+          # claude-code (Python 3.9 or newer, dnf or apt).
           - { image: "registry.access.redhat.com/ubi8/ubi", kind: dnf }
-          - { image: "registry.access.redhat.com/ubi9/ubi", kind: dnf }
-          - { image: "registry.access.redhat.com/ubi10/ubi", kind: dnf }
-          - { image: "almalinux:9", kind: dnf }
-          - { image: "quay.io/centos/centos:stream10", kind: dnf }
-          - { image: "fedora:latest", kind: dnf }
-          - { image: "amazonlinux:2023", kind: dnf }
+          - { image: "registry.access.redhat.com/ubi9/ubi", kind: dnf, agent: true }
+          - { image: "registry.access.redhat.com/ubi10/ubi", kind: dnf, agent: true }
+          - { image: "almalinux:9", kind: dnf, agent: true }
+          - { image: "quay.io/centos/centos:stream10", kind: dnf, agent: true }
+          - { image: "fedora:latest", kind: dnf, agent: true }
+          - { image: "amazonlinux:2023", kind: dnf, agent: true }
           - { image: "registry.suse.com/bci/bci-base:15.7", kind: zypper }
           - { image: "registry.suse.com/bci/bci-base:16.0", kind: zypper }
-          - { image: "debian:12", kind: apt }
-          - { image: "debian:13", kind: apt }
-          - { image: "ubuntu:24.04", kind: apt }
-          - { image: "ubuntu:26.04", kind: apt }
+          - { image: "debian:12", kind: apt, agent: true }
+          - { image: "debian:13", kind: apt, agent: true }
+          - { image: "ubuntu:24.04", kind: apt, agent: true }
+          - { image: "ubuntu:26.04", kind: apt, agent: true }
     container: ${{ matrix.image }}
     steps:
       - name: Add the repository and install petit
@@ -211,3 +213,29 @@ jobs:
             'Sep 23 10:00:03 host CRON[103]: (root) CMD (run-parts /etc/cron.hourly)' > sample.log
           petit --hash sample.log | tee hash.out
           grep -q 'Accepted publickey' hash.out
+
+      - name: Add Anthropic's claude-code repository and install claude-agent
+        if: matrix.agent
+        run: |
+          case "${{ matrix.kind }}" in
+          dnf)
+            printf '%s\n' '[claude-code]' 'name=Claude Code' \
+              'baseurl=https://downloads.claude.ai/claude-code/rpm/stable' \
+              'enabled=1' 'gpgcheck=1' 'gpgkey=https://downloads.claude.ai/keys/claude-code.asc' \
+              > /etc/yum.repos.d/claude-code.repo
+            dnf install -y claude-agent claude-agent-trentina
+            ;;
+          apt)
+            curl -fsSL -o /etc/apt/keyrings/claude-code.asc https://downloads.claude.ai/keys/claude-code.asc
+            echo "deb [signed-by=/etc/apt/keyrings/claude-code.asc] https://downloads.claude.ai/claude-code/apt/stable stable main" \
+              > /etc/apt/sources.list.d/claude-code.list
+            apt-get update
+            apt-get install -y claude-agent claude-agent-trentina
+            ;;
+          esac
+
+      - name: Run claude-agent
+        if: matrix.agent
+        run: |
+          claude-agent --version
+          CLAUDE_AGENT=1 claude-agent status

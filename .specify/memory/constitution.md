@@ -13,8 +13,9 @@ against this repo's files by `constitution.yml`. They are not restated here.
 ## Products and Formats
 
 - **Products:** the repos listed in `products.txt` (today
-  `crunchtools/petit`). Each product's release workflow attaches a noarch
-  `.rpm` and an `all` `.deb` to its GitHub releases.
+  `crunchtools/petit` and `crunchtools/claude-agent`). Each product's release
+  workflow attaches noarch `.rpm` and `all` `.deb` packages to its GitHub
+  releases.
 - **Retention:** the last five non-draft, non-prerelease releases of each
   product (`KEEP_RELEASES`). Older versions drop out of the repositories and
   stay on the GitHub releases.
@@ -32,7 +33,10 @@ against this repo's files by `constitution.yml`. They are not restated here.
 After every deploy, `publish.yml` installs each product from the live
 repositories with signature checking on and runs it, on UBI 8, 9 and 10,
 AlmaLinux 9, CentOS Stream 10, Fedora, Amazon Linux 2023, SUSE BCI 15.7 and
-16.0, Debian 12 and 13, and Ubuntu 24.04 and 26.04. Downloads retry in a
+16.0, Debian 12 and 13, and Ubuntu 24.04 and 26.04. claude-agent depends on
+Anthropic's `claude-code`, so where it is supported (dnf and apt with Python
+3.9 or newer) the smoke test adds Anthropic's repository and installs it
+too. Downloads retry in a
 loop because Pages returns 503s right after a deploy and UBI 8's curl lacks
 the newer retry flags.
 

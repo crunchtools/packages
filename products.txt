@@ -1,1 +1,2 @@
 crunchtools/petit
+crunchtools/claude-agent
