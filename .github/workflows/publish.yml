@@ -84,8 +84,23 @@ jobs:
         if: steps.fetch.outputs.changed == 'true'
         run: |
           mkdir -p site/rpm
-          cp pool/*.rpm site/rpm/
-          rpmsign --addsign --define "_gpg_name $FPR" site/rpm/*.rpm
+          # A signature carries a timestamp, so re-signing changes a file
+          # under its old URL, and for the CDN's cache lifetime dnf gets old
+          # bytes against new metadata ("checksum doesn't match"). Keep the
+          # copy already published when it is this package, signed by us.
+          db=$(mktemp -d)
+          rpmkeys --dbpath "$db" --import crunchtools.asc
+          for f in pool/*.rpm; do
+            name=$(basename "$f")
+            if curl -fsS -o "site/rpm/$name" "$SITE_URL/rpm/$name" &&
+               rpmkeys --dbpath "$db" --checksig "site/rpm/$name" | grep -q ': digests signatures OK$' &&
+               [ "$(rpm -qp --qf '%{SHA256HEADER}' "site/rpm/$name")" = "$(rpm -qp --qf '%{SHA256HEADER}' "$f")" ]; then
+              echo "kept $name"
+            else
+              cp "$f" "site/rpm/$name"
+              rpmsign --addsign --define "_gpg_name $FPR" "site/rpm/$name"
+            fi
+          done
           createrepo_c site/rpm
           gpg --batch --yes --local-user "$FPR" --detach-sign --armor site/rpm/repodata/repomd.xml
           cat > site/rpm/crunchtools.repo <<EOF
