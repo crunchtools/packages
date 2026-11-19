@@ -14,6 +14,7 @@ All notable changes to this project are documented here. The format follows
   against new metadata and fail with "checksum doesn't match".
 
 ### Changed
+- Gatehouse triage receives the review job's result (`review_result`), so a PR whose review died before posting anything is held instead of passing.
 
 - Added the per-repo constitution as a v1.18.0 manifest (Package Repository):
   products, formats, signing key, smoke-test matrix and the hourly schedule.
